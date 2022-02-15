@@ -48,6 +48,18 @@
 			gpio-controller;
 			#gpio-cells = <2>;
 		};
+
+		smc_rtc: rtc {
+			nvmem-cells = <&rtc_offset>;
+			nvmem-cell-names = "rtc_offset";
+		};
+
+		smc_reboot: reboot {
+			nvmem-cells = <&shutdown_flag>, <&boot_stage>,
+				<&boot_error_count>, <&panic_count>, <&pm_setting>;
+			nvmem-cell-names = "shutdown_flag", "boot_stage",
+				"boot_error_count", "panic_count", "pm_setting";
+		};
 	};
 
 	pinctrl_smc: pinctrl@290820000 {

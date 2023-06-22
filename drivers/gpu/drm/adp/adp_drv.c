@@ -82,7 +82,7 @@
 #define GEN_RD_CMD_BUSY BIT(6)
 #define CMD_PKT_STATUS_TIMEOUT_US 20000
 
-int adp_open(struct inode *inode, struct file *filp)
+static int adp_open(struct inode *inode, struct file *filp)
 {
 	/*
 	 * The modesetting driver does not check the non-desktop connector
@@ -252,7 +252,8 @@ static const u32 plane_formats[] = {
 
 #define ALL_CRTCS 1
 
-struct adp_plane *adp_plane_new(struct adp_drv_private *adp, u8 id)
+static struct adp_plane *adp_plane_new(struct adp_drv_private *adp,
+				       u8 id)
 {
 	struct drm_device *drm = &adp->drm;
 	struct adp_plane *plane;
@@ -434,7 +435,7 @@ static int adp_get_modes(struct drm_connector *connector)
 	return 1;
 }
 
-int adp_detect_ctx(struct drm_connector *connector,
+static int adp_detect_ctx(struct drm_connector *connector,
 		   struct drm_modeset_acquire_ctx *ctx,
 		   bool force) {
 	connector->display_info.non_desktop = true;
@@ -509,6 +510,12 @@ static int adp_setup_mode_config(struct adp_drv_private *adp)
 				 &adp_connector_helper_funcs);
 	ret = drm_connector_init(drm, &adp->connector, &adp_connector_funcs,
 				 DRM_MODE_CONNECTOR_DSI);
+	if (ret)
+		return ret;
+
+	/* This should come from the dts / panel */
+	ret = drm_connector_set_panel_orientation(&adp->connector,
+				DRM_MODE_PANEL_ORIENTATION_RIGHT_UP);
 	if (ret)
 		return ret;
 

@@ -48,3 +48,10 @@
 &pcie0_dart_2 {
 	status = "okay";
 };
+
+#include "isp-common.dtsi"
+
+&isp {
+	apple,platform-id = <2>;
+	apple,temporal-filter = <0>;
+};

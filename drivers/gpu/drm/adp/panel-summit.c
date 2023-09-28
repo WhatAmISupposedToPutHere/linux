@@ -14,8 +14,11 @@ static int summit_bl_update_status(struct backlight_device *dev)
 {
 	struct summit_data *panel = dev_get_drvdata(&dev->dev);
 	int level = backlight_get_brightness(dev);
-	return mipi_dsi_dcs_write(panel->dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
-				  &level, 1);
+	ssize_t err = mipi_dsi_dcs_write(panel->dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+					 &level, 1);
+	if (err < 0)
+		return err;
+	return 0;
 }
 
 static int summit_bl_get_brightness(struct backlight_device *dev)

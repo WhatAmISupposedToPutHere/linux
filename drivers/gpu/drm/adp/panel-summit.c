@@ -9,16 +9,20 @@ struct summit_data {
 	struct backlight_device *bl;
 };
 
-
-static int summit_bl_update_status(struct backlight_device *dev)
+static int summit_set_brightness(struct device *dev)
 {
-	struct summit_data *panel = dev_get_drvdata(&dev->dev);
-	int level = backlight_get_brightness(dev);
+	struct summit_data *panel = dev_get_drvdata(dev);
+	int level = backlight_get_brightness(panel->bl);
 	ssize_t err = mipi_dsi_dcs_write(panel->dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
 					 &level, 1);
 	if (err < 0)
 		return err;
 	return 0;
+}
+
+static int summit_bl_update_status(struct backlight_device *dev)
+{
+	return summit_set_brightness(&dev->dev);
 }
 
 static int summit_bl_get_brightness(struct backlight_device *dev)
@@ -59,6 +63,25 @@ static void summit_remove(struct mipi_dsi_device *dsi)
 	mipi_dsi_detach(dsi);
 }
 
+static int summit_resume(struct device *dev)
+{
+	return summit_set_brightness(dev);
+}
+
+static int summit_suspend(struct device *dev)
+{
+	int level = 0;
+	struct summit_data *panel = dev_get_drvdata(dev);
+	ssize_t err = mipi_dsi_dcs_write(panel->dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+					 &level, 1);
+	if (err < 0)
+		return err;
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(summit_pm_ops, summit_suspend,
+				summit_resume);
+
 static const struct of_device_id summit_of_match[] = {
 	{ .compatible = "apple,summit" },
 	{},
@@ -72,6 +95,7 @@ static struct mipi_dsi_driver summit_driver = {
 	.driver = {
 		.name = "panel-summit",
 		.of_match_table = summit_of_match,
+		.pm = pm_sleep_ptr(&summit_pm_ops),
 	},
 };
 module_mipi_dsi_driver(summit_driver);

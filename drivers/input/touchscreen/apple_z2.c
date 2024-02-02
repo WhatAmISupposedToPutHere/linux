@@ -300,13 +300,15 @@ static int apple_z2_upload_firmware(struct apple_z2 *z2)
 		} else if (load_cmd == 2) {
 			address = *(u32 *)(fw->data + fw_idx);
 			fw_idx += 4;
-			size = z2->cal_size + sizeof(struct apple_z2_hbpp_blob_hdr) + 4;
-			data = kzalloc(size, GFP_KERNEL);
-			apple_z2_build_cal_blob(z2, address, data);
-			error = apple_z2_send_firmware_blob(z2, data, size, 16);
-			kfree(data);
-			if (error)
-				goto error;
+		        if (z2->cal_size != 0) {
+				size = z2->cal_size + sizeof(struct apple_z2_hbpp_blob_hdr) + 4;
+				data = kzalloc(size, GFP_KERNEL);
+				apple_z2_build_cal_blob(z2, address, data);
+				error = apple_z2_send_firmware_blob(z2, data, size, 16);
+				kfree(data);
+				if (error)
+					goto error;
+			}
 		} else {
 			dev_err(&z2->spidev->dev, "firmware malformed");
 			error = -EINVAL;
@@ -429,8 +431,8 @@ static int apple_z2_probe(struct spi_device *spi)
 
 	z2->cal_blob = of_get_property(dev->of_node, "apple,z2-cal-blob", &z2->cal_size);
 	if (!z2->cal_blob) {
-		dev_err(dev, "unable to get calibration");
-		return -EINVAL;
+		dev_warn(dev, "unable to get calibration, precision may be degraded");
+		z2->cal_size = 0;
 	}
 
 	z2->input_dev = devm_input_allocate_device(dev);

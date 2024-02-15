@@ -65,13 +65,17 @@ static void summit_remove(struct mipi_dsi_device *dsi)
 
 static int summit_resume(struct device *dev)
 {
-	return summit_set_brightness(dev);
+	//	return summit_set_brightness(dev);
+	struct summit_data *panel = dev_get_drvdata(dev);
+	return mipi_dsi_dcs_exit_sleep_mode(panel->dsi);
 }
 
 static int summit_suspend(struct device *dev)
 {
-	int level = 0;
 	struct summit_data *panel = dev_get_drvdata(dev);
+	return mipi_dsi_dcs_enter_sleep_mode(panel->dsi);
+	int level = 0;
+	//	struct summit_data *panel = dev_get_drvdata(dev);
 	ssize_t err = mipi_dsi_dcs_write(panel->dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
 					 &level, 1);
 	if (err < 0)

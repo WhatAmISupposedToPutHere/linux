@@ -242,3 +242,8 @@
 
 #include "hwmon-fan.dtsi"
 #include "hwmon-laptop.dtsi"
+
+&aop {
+	status = "okay";
+	apple,chassis-name = "J293";
+};

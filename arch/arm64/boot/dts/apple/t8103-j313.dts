@@ -174,3 +174,8 @@
 };
 
 #include "hwmon-laptop.dtsi"
+
+&aop {
+	status = "okay";
+	apple,chassis-name = "J313";
+};

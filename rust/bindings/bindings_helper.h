@@ -26,9 +26,12 @@
 #include <linux/dma-fence-chain.h>
 #include <linux/dma-mapping.h>
 #include <linux/dma-resv.h>
+#include <linux/dmapool.h>
 #include <linux/errname.h>
 #include <linux/ethtool.h>
 #include <linux/firmware.h>
+#include <linux/iio/iio.h>
+#include <linux/iio/types.h>
 #include <linux/jiffies.h>
 #include <linux/mdio.h>
 #include <linux/phy.h>
@@ -40,6 +43,7 @@
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_device.h>
+#include <linux/of_dma.h>
 #include <linux/platform_device.h>
 #include <linux/refcount.h>
 #include <linux/siphash.h>
@@ -50,6 +54,9 @@
 #include <linux/wait.h>
 #include <linux/workqueue.h>
 #include <linux/xarray.h>
+#include <sound/core.h>
+#include <sound/dmaengine_pcm.h>
+#include <sound/pcm.h>
 
 /* `bindgen` gets confused at certain things. */
 const size_t RUST_CONST_HELPER_ARCH_SLAB_MINALIGN = ARCH_SLAB_MINALIGN;
@@ -79,3 +86,10 @@ const xa_mark_t BINDINGS_XA_MARK_MAX = XA_MARK_MAX;
 const xa_mark_t BINDINGS_XA_FREE_MARK = XA_FREE_MARK;
 
 const uint32_t BINDINGS_DRM_EXEC_INTERRUPTIBLE_WAIT = DRM_EXEC_INTERRUPTIBLE_WAIT;
+
+const u64 BINDINGS_SNDRV_PCM_FMTBIT_FLOAT_LE = SNDRV_PCM_FMTBIT_FLOAT_LE;
+
+const u32 BINDINGS_IIO_CHAN_INFO_RAW = IIO_CHAN_INFO_RAW;
+const u32 BINDINGS_IIO_CHAN_INFO_PROCESSED = IIO_CHAN_INFO_PROCESSED;
+const u32 BINDINGS_IIO_ANGL = IIO_ANGL;
+const u32 BINDINGS_IIO_LIGHT = IIO_LIGHT;

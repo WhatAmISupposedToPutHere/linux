@@ -40,3 +40,8 @@
 &mtp_mt {
 	firmware-name = "apple/tpmtfw-j416s.bin";
 };
+
+&aop {
+	status = "okay";
+	apple,chassis-name = "J416";
+};

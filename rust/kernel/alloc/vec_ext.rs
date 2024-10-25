@@ -74,6 +74,10 @@ pub trait VecExt<T>: Sized {
     fn reserve(&mut self, additional: usize, flags: Flags) -> Result<(), AllocError>;
 }
 
+pub trait VecExtCopy<T>: Sized {
+    fn resize(&mut self, new_len: usize, value: T, flags: Flags) -> Result<(), AllocError>;
+}
+
 impl<T> VecExt<T> for Vec<T> {
     fn with_capacity(capacity: usize, flags: Flags) -> Result<Self, AllocError> {
         let mut v = Vec::new();
@@ -159,6 +163,30 @@ impl<T> VecExt<T> for Vec<T> {
             unsafe { rebuild(self, new_ptr.cast::<T>(), len, new_cap) };
             Ok(())
         }
+    }
+}
+
+impl <T: Copy> VecExtCopy<T> for Vec<T> {
+    fn resize(&mut self, new_len: usize, value: T, flags: Flags) -> Result<(), AllocError> {
+        if new_len < self.len() {
+            // SAFETY: T is Copy, no need to call destructors
+            unsafe {
+                self.set_len(new_len);
+            }
+            return Ok(());
+        }
+        if new_len == self.len() {
+            return Ok(());
+        }
+        self.reserve(new_len - self.len(), flags)?;
+        for u in self.spare_capacity_mut() {
+            u.write(value);
+        }
+        // SAFETY: we just initialized them above
+        unsafe {
+            self.set_len(new_len);
+        }
+        Ok(())
     }
 }
 

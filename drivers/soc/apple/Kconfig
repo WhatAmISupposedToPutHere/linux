@@ -74,6 +74,17 @@ config APPLE_DOCKCHANNEL
 
 	  Say 'y' here if you have an Apple SoC.
 
+config APPLE_AOP
+	tristate "Apple \"Always-on\" Processor"
+	depends on ARCH_APPLE || COMPILE_TEST
+	depends on APPLE_RTKIT
+	default ARCH_APPLE
+	help
+	  A co-processor persent on certain Apple SoCs controlling accelerometers,
+          gyros, ambient light sensors and microphones. Is not actually always on.
+
+	  Say 'y' here if you have an Apple laptop.
+
 endmenu
 
 endif

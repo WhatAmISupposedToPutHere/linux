@@ -36,3 +36,8 @@
 	compatible = "apple,j316-macaudio", "apple,macaudio";
 	model = "MacBook Pro J316";
 };
+
+&aop {
+	status = "okay";
+	apple,chassis-name = "J316";
+};

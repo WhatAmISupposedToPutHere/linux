@@ -273,3 +273,12 @@
 
 #include "hwmon-fan.dtsi"
 #include "hwmon-laptop.dtsi"
+
+&aop {
+	status = "okay";
+};
+
+&aop_audio {
+	apple,chassis-name = "J493";
+	apple,machine-kind = "MacBook Pro";
+};

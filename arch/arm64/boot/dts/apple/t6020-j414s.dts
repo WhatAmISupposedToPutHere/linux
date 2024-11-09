@@ -40,3 +40,12 @@
 &mtp_mt {
 	firmware-name = "apple/tpmtfw-j414s.bin";
 };
+
+&aop {
+	status = "okay";
+};
+
+&aop_audio {
+	apple,chassis-name = "J414";
+	apple,machine-kind = "MacBook Pro";
+};

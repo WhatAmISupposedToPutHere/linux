@@ -250,3 +250,12 @@
 };
 
 #include "hwmon-laptop.dtsi"
+
+&aop {
+	status = "okay";
+};
+
+&aop_audio {
+	apple,chassis-name = "J413";
+	apple,machine-kind = "MacBook Air";
+};

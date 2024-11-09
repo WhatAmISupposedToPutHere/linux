@@ -16,3 +16,5 @@ apple-sart-y = sart.o
 
 obj-$(CONFIG_APPLE_DOCKCHANNEL) += apple-dockchannel.o
 apple-dockchannel-y = dockchannel.o
+
+obj-$(CONFIG_APPLE_AOP) += aop.o

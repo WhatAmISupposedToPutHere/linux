@@ -11,6 +11,7 @@
 
 	aliases {
 		gpu = &gpu;
+		sep = &sep;
 	};
 
 	cpus {

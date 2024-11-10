@@ -26,6 +26,7 @@
 		serial0 = &serial0;
 		sio = &sio;
 		wifi0 = &wifi0;
+		sep = &sep;
 	};
 
 	chosen {

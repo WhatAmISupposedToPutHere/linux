@@ -9,6 +9,7 @@
 #include <linux/firmware.h>
 #include <linux/input.h>
 #include <linux/input/mt.h>
+#include <linux/input/touchscreen.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -25,19 +26,19 @@
 #define LOAD_COMMAND_INIT_PAYLOAD        0
 #define LOAD_COMMAND_SEND_BLOB           1
 #define LOAD_COMMAND_SEND_CALIBRATION    2
+#define CAL_PROP_NAME                    "apple,z2-cal-blob"
 
 struct apple_z2 {
 	struct spi_device *spidev;
 	struct gpio_desc *reset_gpio;
 	struct input_dev *input_dev;
 	struct completion boot_irq;
-	int booted;
-	int open;
-	int counter;
-	int y_size;
+	bool booted;
+	int index_parity;
+	struct touchscreen_properties props;
 	const char *fw_name;
-	const char *cal_blob;
-	int cal_size;
+	u8 *tx_buf;
+	u8 *rx_buf;
 };
 
 struct apple_z2_finger {
@@ -59,25 +60,26 @@ struct apple_z2_finger {
 } __packed;
 
 struct apple_z2_hbpp_blob_hdr {
-	u16 cmd;
-	u16 len;
-	u32 addr;
-	u16 checksum;
-} __packed;
+	__le16 cmd;
+	__le16 len;
+	__le32 addr;
+	__le16 checksum;
+};
 
 struct apple_z2_fw_hdr {
-	u32 magic;
-	u32 version;
-} __packed;
+	__le32 magic;
+	__le32 version;
+};
 
 struct apple_z2_read_interrupt_cmd {
 	u8 cmd;
 	u8 counter;
 	u8 unused[12];
 	__le16 checksum;
-} __packed;
+};
 
-static void apple_z2_parse_touches(struct apple_z2 *z2, char *msg, size_t msg_len)
+static void apple_z2_parse_touches(struct apple_z2 *z2,
+				   const u8 *msg, size_t msg_len)
 {
 	int i;
 	int nfingers;
@@ -85,8 +87,6 @@ static void apple_z2_parse_touches(struct apple_z2 *z2, char *msg, size_t msg_le
 	int slot_valid;
 	struct apple_z2_finger *fingers;
 
-	if (!z2->open)
-		return;
 	if (msg_len <= APPLE_Z2_NUM_FINGERS_OFFSET)
 		return;
 	nfingers = msg[APPLE_Z2_NUM_FINGERS_OFFSET];
@@ -100,13 +100,12 @@ static void apple_z2_parse_touches(struct apple_z2 *z2, char *msg, size_t msg_le
 		slot_valid = fingers[i].state == APPLE_Z2_TOUCH_STARTED ||
 			     fingers[i].state == APPLE_Z2_TOUCH_MOVED;
 		input_mt_slot(z2->input_dev, slot);
-		input_mt_report_slot_state(z2->input_dev, MT_TOOL_FINGER, slot_valid);
-		if (!slot_valid)
+		if (!input_mt_report_slot_state(z2->input_dev, MT_TOOL_FINGER, slot_valid))
 			continue;
-		input_report_abs(z2->input_dev, ABS_MT_POSITION_X,
-				 le16_to_cpu(fingers[i].abs_x));
-		input_report_abs(z2->input_dev, ABS_MT_POSITION_Y,
-				 z2->y_size - le16_to_cpu(fingers[i].abs_y));
+		touchscreen_report_pos(z2->input_dev, &z2->props,
+				       le16_to_cpu(fingers[i].abs_x),
+				       le16_to_cpu(fingers[i].abs_y),
+				       true);
 		input_report_abs(z2->input_dev, ABS_MT_WIDTH_MAJOR,
 				 le16_to_cpu(fingers[i].tool_major));
 		input_report_abs(z2->input_dev, ABS_MT_WIDTH_MINOR,
@@ -122,68 +121,43 @@ static void apple_z2_parse_touches(struct apple_z2 *z2, char *msg, size_t msg_le
 	input_sync(z2->input_dev);
 }
 
-static int apple_z2_spi_sync(struct apple_z2 *z2, struct spi_message *msg)
-{
-	int error;
-
-	error = spi_sync(z2->spidev, msg);
-
-	return error;
-}
-
 static int apple_z2_read_packet(struct apple_z2 *z2)
 {
-	struct spi_message msg;
+	struct apple_z2_read_interrupt_cmd *len_cmd = (void *)z2->tx_buf;
 	struct spi_transfer xfer;
-	struct apple_z2_read_interrupt_cmd len_cmd;
-	char len_rx[16];
-	size_t pkt_len;
-	char *pkt_rx;
 	int error;
+	size_t pkt_len;
 
-	spi_message_init(&msg);
 	memset(&xfer, 0, sizeof(xfer));
-	memset(&len_cmd, 0, sizeof(len_cmd));
+	len_cmd->cmd = APPLE_Z2_CMD_READ_INTERRUPT_DATA;
+	len_cmd->counter = z2->index_parity + 1;
+	len_cmd->checksum =
+		cpu_to_le16(APPLE_Z2_CMD_READ_INTERRUPT_DATA + len_cmd->counter);
+	z2->index_parity = !z2->index_parity;
+	xfer.tx_buf = z2->tx_buf;
+	xfer.rx_buf = z2->rx_buf;
+	xfer.len = sizeof(*len_cmd);
 
-	len_cmd.cmd = APPLE_Z2_CMD_READ_INTERRUPT_DATA;
-	len_cmd.counter = z2->counter + 1;
-	len_cmd.checksum = cpu_to_le16(APPLE_Z2_CMD_READ_INTERRUPT_DATA + 1 + z2->counter);
-	z2->counter = 1 - z2->counter;
-	xfer.tx_buf = &len_cmd;
-	xfer.rx_buf = len_rx;
-	xfer.len = sizeof(len_cmd);
-
-	spi_message_add_tail(&xfer, &msg);
-	error = apple_z2_spi_sync(z2, &msg);
+	error = spi_sync_transfer(z2->spidev, &xfer, 1);
 	if (error)
 		return error;
 
-	pkt_len = (get_unaligned_le16(len_rx + 1) + 8) & (-4);
-	pkt_rx = kzalloc(pkt_len, GFP_KERNEL);
-	if (!pkt_rx)
-		return -ENOMEM;
+	pkt_len = (get_unaligned_le16(z2->rx_buf + 1) + 8) & 0xfffffffc;
 
-	spi_message_init(&msg);
-	memset(&xfer, 0, sizeof(xfer));
-	xfer.rx_buf = pkt_rx;
-	xfer.len = pkt_len;
+	error = spi_read(z2->spidev, z2->rx_buf, pkt_len);
+	if (error)
+		return error;
 
-	spi_message_add_tail(&xfer, &msg);
-	error = apple_z2_spi_sync(z2, &msg);
+	apple_z2_parse_touches(z2, z2->rx_buf + 5, pkt_len - 5);
 
-	if (!error)
-		apple_z2_parse_touches(z2, pkt_rx + 5, pkt_len - 5);
-
-	kfree(pkt_rx);
-	return error;
+	return 0;
 }
 
 static irqreturn_t apple_z2_irq(int irq, void *data)
 {
-	struct spi_device *spi = data;
-	struct apple_z2 *z2 = spi_get_drvdata(spi);
+	struct apple_z2 *z2 = data;
 
-	if (!z2->booted)
+	if (unlikely(!z2->booted))
 		complete(&z2->boot_irq);
 	else
 		apple_z2_read_packet(z2);
@@ -191,168 +165,183 @@ static irqreturn_t apple_z2_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-static void apple_z2_build_cal_blob(struct apple_z2 *z2, u32 address, char *data)
+/* Build calibration blob, caller is responsible for freeing the blob data. */
+static const u8 *apple_z2_build_cal_blob(struct apple_z2 *z2,
+					 u32 address, size_t *size)
 {
-	u16 len_words = (z2->cal_size + 3) / 4;
-	u32 checksum = 0;
-	u16 checksum_hdr = 0;
+	u8 *cal_data;
+	int cal_size;
+	size_t blob_size;
+	u32 checksum;
+	u16 checksum_hdr;
 	int i;
 	struct apple_z2_hbpp_blob_hdr *hdr;
+	int error;
 
-	hdr = (struct apple_z2_hbpp_blob_hdr *)data;
-	hdr->cmd = APPLE_Z2_HBPP_CMD_BLOB;
-	hdr->len = len_words;
-	hdr->addr = address;
+	if (!device_property_present(&z2->spidev->dev, CAL_PROP_NAME))
+		return NULL;
 
+	cal_size = device_property_count_u8(&z2->spidev->dev, CAL_PROP_NAME);
+	if (cal_size < 0)
+		return ERR_PTR(cal_size);
+
+	blob_size = sizeof(struct apple_z2_hbpp_blob_hdr) + cal_size + sizeof(__le32);
+	u8 *blob_data __free(kfree) = kzalloc(blob_size, GFP_KERNEL);
+	if (!blob_data)
+		return ERR_PTR(-ENOMEM);
+
+	hdr = (struct apple_z2_hbpp_blob_hdr *)blob_data;
+	hdr->cmd = cpu_to_le16(APPLE_Z2_HBPP_CMD_BLOB);
+	hdr->len = cpu_to_le16(round_up(cal_size, 4));
+	hdr->addr = cpu_to_le32(address);
+
+	checksum_hdr = 0;
 	for (i = 2; i < 8; i++)
-		checksum_hdr += data[i];
+		checksum_hdr += blob_data[i];
+	hdr->checksum = cpu_to_le16(checksum_hdr);
 
-	hdr->checksum = checksum_hdr;
-	memcpy(data + 10, z2->cal_blob, z2->cal_size);
+	cal_data = blob_data + sizeof(struct apple_z2_hbpp_blob_hdr);
+	error = device_property_read_u8_array(&z2->spidev->dev, CAL_PROP_NAME,
+					      cal_data, cal_size);
+	if (error)
+		return ERR_PTR(error);
 
-	for (i = 0; i < z2->cal_size; i++)
-		checksum += z2->cal_blob[i];
+	checksum = 0;
+	for (i = 0; i < cal_size; i++)
+		checksum += cal_data[i];
+	put_unaligned_le32(checksum, cal_data + cal_size);
 
-	*(u32 *)(data + z2->cal_size + 10) = checksum;
+	*size = blob_size;
+	return no_free_ptr(blob_data);
 }
 
-static int apple_z2_send_firmware_blob(struct apple_z2 *z2, const char *data, u32 size, u8 bpw)
+static int apple_z2_send_firmware_blob(struct apple_z2 *z2, const u8 *data,
+				       u32 size, bool init)
 {
 	struct spi_message msg;
 	struct spi_transfer blob_xfer, ack_xfer;
-	char int_ack[] = {0x1a, 0xa1};
-	char ack_rsp[] = {0, 0};
 	int error;
+
+	z2->tx_buf[0] = 0x1a;
+	z2->tx_buf[1] = 0xa1;
 
 	spi_message_init(&msg);
 	memset(&blob_xfer, 0, sizeof(blob_xfer));
 	memset(&ack_xfer, 0, sizeof(ack_xfer));
+
 	blob_xfer.tx_buf = data;
 	blob_xfer.len = size;
-	blob_xfer.bits_per_word = bpw;
+	blob_xfer.bits_per_word = init ? 8 : 16;
 	spi_message_add_tail(&blob_xfer, &msg);
-	ack_xfer.tx_buf = int_ack;
-	ack_xfer.rx_buf = ack_rsp;
+
+	ack_xfer.tx_buf = z2->tx_buf;
 	ack_xfer.len = 2;
 	spi_message_add_tail(&ack_xfer, &msg);
+
 	reinit_completion(&z2->boot_irq);
-	error = apple_z2_spi_sync(z2, &msg);
+	error = spi_sync(z2->spidev, &msg);
 	if (error)
 		return error;
+
+	/* Irq only happens sometimes, but the thing boots reliably nonetheless */
 	wait_for_completion_timeout(&z2->boot_irq, msecs_to_jiffies(20));
+
 	return 0;
 }
 
 static int apple_z2_upload_firmware(struct apple_z2 *z2)
 {
-	const struct firmware *fw;
-	struct apple_z2_fw_hdr *fw_hdr;
+	const struct apple_z2_fw_hdr *fw_hdr;
 	size_t fw_idx = sizeof(struct apple_z2_fw_hdr);
 	int error;
 	u32 load_cmd;
-	u32 size;
 	u32 address;
-	char *data;
+	bool init;
+	size_t size;
 
+	const struct firmware *fw __free(firmware) = NULL;
 	error = request_firmware(&fw, z2->fw_name, &z2->spidev->dev);
 	if (error) {
-		dev_err(&z2->spidev->dev, "unable to load firmware");
+		dev_err(&z2->spidev->dev, "unable to load firmware\n");
 		return error;
 	}
 
-	fw_hdr = (struct apple_z2_fw_hdr *)fw->data;
-	if (fw_hdr->magic != APPLE_Z2_FW_MAGIC || fw_hdr->version != 1) {
-		dev_err(&z2->spidev->dev, "invalid firmware header");
+	fw_hdr = (const struct apple_z2_fw_hdr *)fw->data;
+	if (le32_to_cpu(fw_hdr->magic) != APPLE_Z2_FW_MAGIC || le32_to_cpu(fw_hdr->version) != 1) {
+		dev_err(&z2->spidev->dev, "invalid firmware header\n");
 		return -EINVAL;
 	}
 
+	/*
+	 * This will interrupt the upload half-way if the file is malformed
+	 * As the device has no non-volatile storage to corrupt, and gets reset
+	 * on boot anyway, this is fine.
+	 */
 	while (fw_idx < fw->size) {
 		if (fw->size - fw_idx < 8) {
-			dev_err(&z2->spidev->dev, "firmware malformed");
-			error = -EINVAL;
-			goto error;
+			dev_err(&z2->spidev->dev, "firmware malformed\n");
+			return -EINVAL;
 		}
 
-		load_cmd = *(u32 *)(fw->data + fw_idx);
-		fw_idx += 4;
+		load_cmd = le32_to_cpup((__force __le32 *)(fw->data + fw_idx));
+		fw_idx += sizeof(u32);
 		if (load_cmd == LOAD_COMMAND_INIT_PAYLOAD || load_cmd == LOAD_COMMAND_SEND_BLOB) {
-			size = *(u32 *)(fw->data + fw_idx);
-			fw_idx += 4;
+			size = le32_to_cpup((__force __le32 *)(fw->data + fw_idx));
+			fw_idx += sizeof(u32);
 			if (fw->size - fw_idx < size) {
-				dev_err(&z2->spidev->dev, "firmware malformed");
-				error = -EINVAL;
-				goto error;
+				dev_err(&z2->spidev->dev, "firmware malformed\n");
+				return -EINVAL;
 			}
+			init = load_cmd == LOAD_COMMAND_INIT_PAYLOAD;
 			error = apple_z2_send_firmware_blob(z2, fw->data + fw_idx,
-							  size, load_cmd == LOAD_COMMAND_SEND_BLOB ? 16 : 8);
+							    size, init);
 			if (error)
-				goto error;
+				return error;
 			fw_idx += size;
-		} else if (load_cmd == 2) {
-			address = *(u32 *)(fw->data + fw_idx);
-			fw_idx += 4;
-		        if (z2->cal_size != 0) {
-				size = z2->cal_size + sizeof(struct apple_z2_hbpp_blob_hdr) + 4;
-				data = kzalloc(size, GFP_KERNEL);
-				apple_z2_build_cal_blob(z2, address, data);
-				error = apple_z2_send_firmware_blob(z2, data, size, 16);
-				kfree(data);
+		} else if (load_cmd == LOAD_COMMAND_SEND_CALIBRATION) {
+			address = le32_to_cpup((__force __le32 *)(fw->data + fw_idx));
+			fw_idx += sizeof(u32);
+
+			const u8 *data __free(kfree) =
+				apple_z2_build_cal_blob(z2, address, &size);
+			if (IS_ERR(data))
+				return PTR_ERR(data);
+
+			if (data) {
+				error = apple_z2_send_firmware_blob(z2, data, size, true);
 				if (error)
-					goto error;
+					return error;
 			}
 		} else {
-			dev_err(&z2->spidev->dev, "firmware malformed");
-			error = -EINVAL;
-			goto error;
+			dev_err(&z2->spidev->dev, "firmware malformed\n");
+			return -EINVAL;
 		}
-		if (fw_idx % 4 != 0)
-			fw_idx += 4 - (fw_idx % 4);
+		fw_idx = round_up(fw_idx, 4);
 	}
 
 
-	z2->booted = 1;
+	z2->booted = true;
 	apple_z2_read_packet(z2);
- error:
-	release_firmware(fw);
-	return error;
+	return 0;
 }
 
 static int apple_z2_boot(struct apple_z2 *z2)
 {
-	int timeout;
-	enable_irq(z2->spidev->irq);
-	gpiod_direction_output(z2->reset_gpio, 0);
-	timeout = wait_for_completion_timeout(&z2->boot_irq, msecs_to_jiffies(20));
-	if (timeout == 0)
-		return -ETIMEDOUT;
-	return apple_z2_upload_firmware(z2);
-}
-
-static int apple_z2_open(struct input_dev *dev)
-{
-	struct apple_z2 *z2 = input_get_drvdata(dev);
 	int error;
 
-	/* Reset the device on boot */
-	gpiod_direction_output(z2->reset_gpio, 1);
-	usleep_range(5000, 10000);
-	error = apple_z2_boot(z2);
+	reinit_completion(&z2->boot_irq);
+	enable_irq(z2->spidev->irq);
+	gpiod_set_value(z2->reset_gpio, 0);
+	if (!wait_for_completion_timeout(&z2->boot_irq, msecs_to_jiffies(20)))
+		return -ETIMEDOUT;
+
+	error = apple_z2_upload_firmware(z2);
 	if (error) {
-		gpiod_direction_output(z2->reset_gpio, 1);
+		gpiod_set_value(z2->reset_gpio, 1);
 		disable_irq(z2->spidev->irq);
-	} else
-		z2->open = 1;
-	return error;
-}
-
-static void apple_z2_close(struct input_dev *dev)
-{
-	struct apple_z2 *z2 = input_get_drvdata(dev);
-
-	disable_irq(z2->spidev->irq);
-	gpiod_direction_output(z2->reset_gpio, 1);
-	z2->open = 0;
-	z2->booted = 0;
+		return error;
+	}
+	return 0;
 }
 
 static int apple_z2_probe(struct spi_device *spi)
@@ -360,104 +349,107 @@ static int apple_z2_probe(struct spi_device *spi)
 	struct device *dev = &spi->dev;
 	struct apple_z2 *z2;
 	int error;
-	int x_size;
-	const char *label;
 
 	z2 = devm_kzalloc(dev, sizeof(*z2), GFP_KERNEL);
 	if (!z2)
+		return -ENOMEM;
+
+	z2->tx_buf = devm_kzalloc(dev, sizeof(struct apple_z2_read_interrupt_cmd), GFP_KERNEL);
+	if (!z2->tx_buf)
+		return -ENOMEM;
+	/* 4096 will end up being rounded up to 8192 due to devres header */
+	z2->rx_buf = devm_kzalloc(dev, 4000, GFP_KERNEL);
+	if (!z2->rx_buf)
 		return -ENOMEM;
 
 	z2->spidev = spi;
 	init_completion(&z2->boot_irq);
 	spi_set_drvdata(spi, z2);
 
-	z2->reset_gpio = devm_gpiod_get_index(dev, "reset", 0, 0);
-	if (IS_ERR(z2->reset_gpio)) {
-	        dev_err(dev, "unable to get reset");
-		return PTR_ERR(z2->reset_gpio);
-	}
+	/* Reset the device on boot */
+	z2->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(z2->reset_gpio))
+		return dev_err_probe(dev, PTR_ERR(z2->reset_gpio), "unable to get reset\n");
 
 	error = devm_request_threaded_irq(dev, z2->spidev->irq, NULL,
-					apple_z2_irq, IRQF_ONESHOT | IRQF_NO_AUTOEN,
-					"apple-z2-irq", spi);
-	if (error < 0) {
-	        dev_err(dev, "unable to request irq");
-		return z2->spidev->irq;
-	}
-
-	error = device_property_read_u32(dev, "touchscreen-size-x", &x_size);
-	if (error) {
-	        dev_err(dev, "unable to get touchscreen size");
-		return error;
-	}
-
-	error = device_property_read_u32(dev, "touchscreen-size-y", &z2->y_size);
-	if (error) {
-	        dev_err(dev, "unable to get touchscreen size");
-		return error;
-	}
-
-	error = device_property_read_string(dev, "label", &label);
-	if (error) {
-	        dev_err(dev, "unable to get device name");
-		return error;
-	}
+					  apple_z2_irq, IRQF_ONESHOT | IRQF_NO_AUTOEN,
+					  "apple-z2-irq", z2);
+	if (error)
+		return dev_err_probe(dev, error, "unable to request irq\n");
 
 	error = device_property_read_string(dev, "firmware-name", &z2->fw_name);
-	if (error) {
-	        dev_err(dev, "unable to get firmware name");
-		return error;
-	}
-
-	z2->cal_blob = of_get_property(dev->of_node, "apple,z2-cal-blob", &z2->cal_size);
-	if (!z2->cal_blob) {
-		dev_warn(dev, "unable to get calibration, precision may be degraded");
-		z2->cal_size = 0;
-	}
+	if (error)
+		return dev_err_probe(dev, error, "unable to get firmware name\n");
 
 	z2->input_dev = devm_input_allocate_device(dev);
 	if (!z2->input_dev)
 		return -ENOMEM;
-	z2->input_dev->name = label;
+	z2->input_dev->name = (char *)spi_get_device_id(spi)->driver_data;
 	z2->input_dev->phys = "apple_z2";
-	z2->input_dev->dev.parent = dev;
 	z2->input_dev->id.bustype = BUS_SPI;
-	z2->input_dev->open = apple_z2_open;
-	z2->input_dev->close = apple_z2_close;
-	input_set_abs_params(z2->input_dev, ABS_MT_POSITION_X, 0, x_size, 0, 0);
+
+	/* Allocate the axes before setting from DT */
+	input_set_abs_params(z2->input_dev, ABS_MT_POSITION_X, 0, 0, 0, 0);
+	input_set_abs_params(z2->input_dev, ABS_MT_POSITION_Y, 0, 0, 0, 0);
+	touchscreen_parse_properties(z2->input_dev, true, &z2->props);
 	input_abs_set_res(z2->input_dev, ABS_MT_POSITION_X, 100);
-	input_set_abs_params(z2->input_dev, ABS_MT_POSITION_Y, 0, z2->y_size, 0, 0);
 	input_abs_set_res(z2->input_dev, ABS_MT_POSITION_Y, 100);
 	input_set_abs_params(z2->input_dev, ABS_MT_WIDTH_MAJOR, 0, 65535, 0, 0);
 	input_set_abs_params(z2->input_dev, ABS_MT_WIDTH_MINOR, 0, 65535, 0, 0);
 	input_set_abs_params(z2->input_dev, ABS_MT_TOUCH_MAJOR, 0, 65535, 0, 0);
 	input_set_abs_params(z2->input_dev, ABS_MT_TOUCH_MINOR, 0, 65535, 0, 0);
 	input_set_abs_params(z2->input_dev, ABS_MT_ORIENTATION, -32768, 32767, 0, 0);
-	input_set_drvdata(z2->input_dev, z2);
+
 	error = input_mt_init_slots(z2->input_dev, 256, INPUT_MT_DIRECT);
-	if (error < 0) {
-	        dev_err(dev, "unable to initialize multitouch slots");
-		return error;
-	}
+	if (error)
+		return dev_err_probe(dev, error, "unable to initialize multitouch slots\n");
 
 	error = input_register_device(z2->input_dev);
-	if (error < 0)
-	        dev_err(dev, "unable to register input device");
+	if (error)
+		return dev_err_probe(dev, error, "unable to register input device\n");
 
-	return error;
+	/* Wait for device reset to finish */
+	usleep_range(5000, 10000);
+	error = apple_z2_boot(z2);
+	if (error)
+		return error;
+	return 0;
 }
 
+static void apple_z2_shutdown(struct spi_device *spi)
+{
+	struct apple_z2 *z2 = spi_get_drvdata(spi);
+
+	disable_irq(z2->spidev->irq);
+	gpiod_direction_output(z2->reset_gpio, 1);
+	z2->booted = false;
+}
+
+static int apple_z2_suspend(struct device *dev)
+{
+	apple_z2_shutdown(to_spi_device(dev));
+	return 0;
+}
+
+static int apple_z2_resume(struct device *dev)
+{
+	struct apple_z2 *z2 = spi_get_drvdata(to_spi_device(dev));
+
+	return apple_z2_boot(z2);
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(apple_z2_pm, apple_z2_suspend, apple_z2_resume);
+
 static const struct of_device_id apple_z2_of_match[] = {
-	{ .compatible = "apple,z2-multitouch" },
-	{},
+	{ .compatible = "apple,j293-touchbar" },
+	{ .compatible = "apple,j493-touchbar" },
+	{}
 };
 MODULE_DEVICE_TABLE(of, apple_z2_of_match);
 
 static struct spi_device_id apple_z2_of_id[] = {
-	{ .name = "j293-touchbar" },
-	{ .name = "j493-touchbar" },
-	{ .name = "z2-touchbar" },
-	{ .name = "z2-multitouch" },
+	{ .name = "j293-touchbar", .driver_data = (kernel_ulong_t)"MacBookPro17,1 Touch Bar" },
+	{ .name = "j493-touchbar", .driver_data = (kernel_ulong_t)"Mac14,7 Touch Bar" },
 	{}
 };
 MODULE_DEVICE_TABLE(spi, apple_z2_of_id);
@@ -465,14 +457,17 @@ MODULE_DEVICE_TABLE(spi, apple_z2_of_id);
 static struct spi_driver apple_z2_driver = {
 	.driver = {
 		.name	= "apple-z2",
-		.owner = THIS_MODULE,
-		.of_match_table = of_match_ptr(apple_z2_of_match),
+		.pm	= pm_sleep_ptr(&apple_z2_pm),
+		.of_match_table = apple_z2_of_match,
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
-	.id_table       = apple_z2_of_id,
-	.probe		= apple_z2_probe,
+	.id_table = apple_z2_of_id,
+	.probe    = apple_z2_probe,
+	.remove   = apple_z2_shutdown,
 };
 
 module_spi_driver(apple_z2_driver);
 
 MODULE_LICENSE("GPL");
 MODULE_FIRMWARE("apple/dfrmtfw-*.bin");
+MODULE_DESCRIPTION("Apple Z2 touchscreens driver");

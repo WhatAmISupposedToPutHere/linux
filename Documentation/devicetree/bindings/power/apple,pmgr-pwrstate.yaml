@@ -62,6 +62,16 @@ properties:
       Forces this power domain to always be powered up.
     type: boolean
 
+  apple,force-disable:
+    description:
+      Use the disable bit when turning the power off
+    type: boolean
+
+  apple,force-reset:
+    description:
+      Use the reset bit when turning the power off
+    type: boolean
+
   apple,min-state:
     description:
       Specifies the minimum power state for auto-PM.

@@ -119,3 +119,10 @@
 &fpwm0 {
 	status = "okay";
 };
+
+#include "isp-common.dtsi"
+
+&isp {
+	apple,platform-id = <3>;
+	apple,temporal-filter = <0>;
+};

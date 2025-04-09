@@ -1390,7 +1390,7 @@
 		};
 
 		aop: aop@24ac00000 {
-			compatible = "apple,aop";
+			compatible = "apple,t8103-aop";
 			reg = <0x2 0x4ac00000 0x0 0x1e0000>,
 			      <0x2 0x4a400000 0x0 0x6C000>;
 			mboxes = <&aop_mbox>;
@@ -1401,8 +1401,6 @@
 			dmas = <&aop_admac 1023>;
 			dma-names = "invalid-order-only";
 
-			apple,aop-target = <1>;
-			apple,aop-alignment = <128>;
 			status = "disabled";
 
 			aop_audio: audio {

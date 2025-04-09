@@ -866,20 +866,40 @@ struct AopDriver(Arc<dyn AOP>);
 
 struct AopHwConfig {
     ec0p: u64,
+    alig: u64,
+    aopt: u64
 }
 
+const HW_CFG_T8103: AopHwConfig = AopHwConfig {
+    ec0p: 0x020000,
+    aopt: 1,
+    alig: 128,
+};
+const HW_CFG_T8112: AopHwConfig = AopHwConfig {
+    ec0p: 0x020000,
+    aopt: 0,
+    alig: 128,
+};
+const HW_CFG_T6000: AopHwConfig = AopHwConfig {
+    ec0p: 0x020000,
+    aopt: 0,
+    alig: 64,
+};
 const HW_CFG_T6020: AopHwConfig = AopHwConfig {
     ec0p: 0x0100_00000000,
+    aopt: 0,
+    alig: 64,
 };
-const HW_CFG_DEFAULT: AopHwConfig = AopHwConfig { ec0p: 0x020000 };
 
 kernel::of_device_table!(
     OF_TABLE,
     MODULE_OF_TABLE,
     <AopDriver as platform::Driver>::IdInfo,
     [
-        (of::DeviceId::new(c_str!("apple,aop-t6020")), &HW_CFG_T6020),
-        (of::DeviceId::new(c_str!("apple,aop")), &HW_CFG_DEFAULT)
+        (of::DeviceId::new(c_str!("apple,t8103-aop")), &HW_CFG_T8103),
+        (of::DeviceId::new(c_str!("apple,t8112-aop")), &HW_CFG_T8112),
+        (of::DeviceId::new(c_str!("apple,t6000-aop")), &HW_CFG_T6000),
+        (of::DeviceId::new(c_str!("apple,t6020-aop")), &HW_CFG_T6020),
     ]
 );
 
@@ -895,14 +915,11 @@ impl platform::Driver for AopDriver {
         let cfg = info.ok_or(ENODEV)?;
         pdev.dma_set_mask_and_coherent(dma_bit_mask(42))?;
         let data = AopData::new(pdev)?;
-        let of = pdev.as_ref().of_node().ok_or(EIO)?;
-        let alig = of.get_property::<u32>(c_str!("apple,aop-alignment"))?;
-        let aopt = of.get_property::<u32>(c_str!("apple,aop-target"))?;
         data.patch_bootargs(&[
             (from_fourcc(b"EC0p"), cfg.ec0p),
             (from_fourcc(b"nCal"), 0x0),
-            (from_fourcc(b"alig"), alig.into()),
-            (from_fourcc(b"AOPt"), aopt.into()),
+            (from_fourcc(b"alig"), cfg.alig),
+            (from_fourcc(b"AOPt"), cfg.aopt),
         ])?;
         let rtkit = rtkit::RtKit::<AopData>::new(pdev.as_ref(), None, 0, data.clone())?;
         *data.rtkit.lock() = Some(rtkit);

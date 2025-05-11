@@ -840,6 +840,10 @@ impl GpuManager::ver {
                 uat_ttb_base: uat.ttb_base(),
                 id: gpu_id,
                 firmware_version: node.get_property(c_str!("apple,firmware-version"))?,
+
+                hw_data_a: node.get_property(c_str!("apple,hw-cal-a"))?,
+                hw_data_b: node.get_property(c_str!("apple,hw-cal-b"))?,
+                hw_globals: node.get_property(c_str!("apple,hw-cal-globals"))?,
             },
             GFP_KERNEL,
         )?)

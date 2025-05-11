@@ -302,6 +302,10 @@ pub(crate) struct DynConfig {
     pub(crate) pwr: PwrConfig,
     /// Firmware version.
     pub(crate) firmware_version: KVec<u32>,
+
+    pub(crate) hw_data_a: KVec<u8>,
+    pub(crate) hw_data_b: KVec<u8>,
+    pub(crate) hw_globals: KVec<u8>,
 }
 
 /// Specific GPU ID configuration fetched from SGX MMIO registers.

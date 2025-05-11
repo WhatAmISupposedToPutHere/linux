@@ -741,7 +741,6 @@ impl<'a> InitDataBuilder::ver<'a> {
                         raw.power_zones[i].target_off = pz.target - pz.target_offset;
                         raw.power_zones[i].filter_tc = pz.filter_tc;
                     }
-
                     if let Some(tab) = self.cfg.global_tab.as_ref() {
                         for (i, x) in tab.iter().enumerate() {
                             raw.unk_118ec[i] = *x;
@@ -758,6 +757,74 @@ impl<'a> InitDataBuilder::ver<'a> {
     fn runtime_pointers(&mut self) -> Result<GpuObject<RuntimePointers::ver>> {
         let hwa = self.hwdata_a()?;
         let hwb = self.hwdata_b()?;
+
+        if self.dyncfg.hw_data_a.len() > 0 {
+            let mut mismatch = false;
+            unsafe {
+                hwa.with(|raw, _inner| {
+                    let sla = core::slice::from_raw_parts(
+                        raw as *const raw::HwDataA::ver as *const u8,
+                        core::mem::size_of::<raw::HwDataA::ver>(),
+                    );
+
+                    dev_info!(
+                        self.dev.as_ref(),
+                        "Hwdata A len {} {}",
+                        sla.len(),
+                        self.dyncfg.hw_data_a.len()
+                    );
+                    for i in 0..core::cmp::min(sla.len(), self.dyncfg.hw_data_a.len()) {
+                        if sla[i] != self.dyncfg.hw_data_a[i] {
+                            mismatch = true;
+                            dev_err!(
+                                self.dev.as_ref(),
+                                "Hwdata A first mismatch at {i} {:#02x} != {:#02x}",
+                                sla[i],
+                                self.dyncfg.hw_data_a[i]
+                            );
+                            break;
+                        }
+                    }
+                });
+            }
+            if !mismatch {
+                dev_info!(self.dev.as_ref(), "Hwdata A match")
+            }
+        }
+
+        if self.dyncfg.hw_data_b.len() > 0 {
+            let mut mismatch = false;
+            unsafe {
+                hwb.with(|raw, _inner| {
+                    let sla = core::slice::from_raw_parts(
+                        raw as *const raw::HwDataB::ver as *const u8,
+                        core::mem::size_of::<raw::HwDataB::ver>(),
+                    );
+
+                    dev_info!(
+                        self.dev.as_ref(),
+                        "Hwdata B len {} {}",
+                        sla.len(),
+                        self.dyncfg.hw_data_b.len()
+                    );
+                    for i in 0..core::cmp::min(sla.len(), self.dyncfg.hw_data_b.len()) {
+                        if sla[i] != self.dyncfg.hw_data_b[i] {
+                            mismatch = true;
+                            dev_err!(
+                                self.dev.as_ref(),
+                                "Hwdata B first mismatch at {i} {:#02x} != {:#02x}",
+                                sla[i],
+                                self.dyncfg.hw_data_b[i]
+                            );
+                            break;
+                        }
+                    }
+                });
+            }
+            if !mismatch {
+                dev_info!(self.dev.as_ref(), "Hwdata B match")
+            }
+        }
 
         let mut buffer_mgr_ctl = gem::new_kernel_object(self.dev, 0x4000)?;
         buffer_mgr_ctl.vmap()?.as_mut_slice().fill(0);
@@ -882,6 +949,39 @@ impl<'a> InitDataBuilder::ver<'a> {
         let fw_status = self.fw_status()?;
         let shared_ro = &mut self.alloc.shared_ro;
 
+        if self.dyncfg.hw_globals.len() > 0 {
+            let mut mismatch = false;
+            unsafe {
+                globals.with(|raw, _inner| {
+                    let sla = core::slice::from_raw_parts(
+                        raw as *const raw::Globals::ver as *const u8,
+                        core::mem::size_of::<raw::Globals::ver>(),
+                    );
+
+                    dev_info!(
+                        self.dev.as_ref(),
+                        "Globals len {} {}",
+                        sla.len(),
+                        self.dyncfg.hw_globals.len()
+                    );
+                    for i in 0..core::cmp::min(sla.len(), self.dyncfg.hw_globals.len()) {
+                        if sla[i] != self.dyncfg.hw_globals[i] {
+                            mismatch = true;
+                            dev_err!(
+                                self.dev.as_ref(),
+                                "Globals first mismatch at {i} {:#02x} != {:#02x}",
+                                sla[i],
+                                self.dyncfg.hw_globals[i]
+                            );
+                            break;
+                        }
+                    }
+                });
+            }
+            if !mismatch {
+                dev_info!(self.dev.as_ref(), "Globals match")
+            }
+        }
         let obj = self.alloc.private.new_init(
             try_init!(InitData::ver {
                 unk_buf: shared_ro.array_empty_tagged(0x4000, b"IDTA")?,

@@ -35,6 +35,7 @@ use crate::debug::*;
 use crate::driver::{AsahiDevRef, AsahiDevice};
 use crate::fw::channels::{ChannelErrorType, PipeType};
 use crate::fw::types::{U32, U64};
+use crate::module_parameters;
 use crate::{
     alloc, buffer, channel, event, fw, gem, hw, initdata, mem, mmu, queue, regs, workqueue,
 };
@@ -831,12 +832,34 @@ impl GpuManager::ver {
 
         let node = dev.as_ref().of_node().ok_or(EIO)?;
 
+        let hw_data_a: KVVec<u8>;
+        let hw_data_b: KVVec<u8>;
+        let hw_globals: KVVec<u8>;
+        if *module_parameters::starlight_debug.get() != 0
+            && dev.as_ref().property_present(c_str!("apple,hw-cal-a"))
+            && dev.as_ref().property_present(c_str!("apple,hw-cal-b"))
+            && dev
+                .as_ref()
+                .property_present(c_str!("apple,hw-cal-globals"))
+        {
+            hw_data_a = node.get_property(c_str!("apple,hw-cal-a"))?;
+            hw_data_b = node.get_property(c_str!("apple,hw-cal-b"))?;
+            hw_globals = node.get_property(c_str!("apple,hw-cal-globals"))?;
+        } else {
+            hw_data_a = KVVec::new();
+            hw_data_b = KVVec::new();
+            hw_globals = KVVec::new();
+        }
+
         Ok(KBox::new(
             hw::DynConfig {
                 pwr: pwr_cfg,
                 uat_ttb_base: uat.ttb_base(),
                 id: gpu_id,
                 firmware_version: node.get_property(c_str!("apple,firmware-version"))?,
+                hw_data_a,
+                hw_data_b,
+                hw_globals,
             },
             GFP_KERNEL,
         )?)

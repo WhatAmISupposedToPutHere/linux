@@ -55,5 +55,10 @@ kernel::module_platform_driver! {
             // permissions: 0o644,
             description: "Fully isolate GPU contexts (limits performance)",
         },
+        starlight_debug: u32 {
+            default: 0,
+            // permissions: 0o644,
+            description: "Compare devicetree supplied initdata with computed one",
+        },
     },
 }

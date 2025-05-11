@@ -20,5 +20,5 @@
 /delete-node/ &pmgr_south;
 
 &gpu {
-	compatible = "apple,agx-t6000", "apple,agx-g13x";
+	compatible = "apple,agx-g13s";
 };

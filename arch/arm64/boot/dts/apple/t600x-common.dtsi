@@ -484,16 +484,28 @@
 		#size-cells = <2>;
 		ranges;
 
+		gpu_globals: globals {
+			status = "disabled";
+		};
+
+		gpu_hw_cal_a: hw-cal-a {
+			status = "disabled";
+		};
+
+		gpu_hw_cal_b: hw-cal-b {
+			status = "disabled";
+		};
+
 		uat_handoff: uat-handoff {
-			reg = <0 0 0 0>;
+			status = "disabled";
 		};
 
 		uat_pagetables: uat-pagetables {
-			reg = <0 0 0 0>;
+			status = "disabled";
 		};
 
 		uat_ttbs: uat-ttbs {
-			reg = <0 0 0 0>;
+			status = "disabled";
 		};
 	};
 };

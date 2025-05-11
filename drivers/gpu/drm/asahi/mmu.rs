@@ -87,7 +87,6 @@ pub(crate) const IOVA_USER_USABLE_RANGE: Range<u64> = IOVA_USER_BASE..IOVA_UNK_P
 
 /// A pre-allocated memory region for UAT management
 struct UatRegion {
-    base: PhysicalAddr,
     map: io::mem::Mem,
 }
 
@@ -1317,7 +1316,6 @@ impl Uat {
     ) -> Result<UatRegion> {
         let of_node = dev.of_node().ok_or(EINVAL)?;
         let res = of_node.reserved_mem_region_to_resource_byname(name)?;
-        let base = res.start();
         let res_size = res.size().try_into()?;
 
         if size > res_size {
@@ -1345,7 +1343,7 @@ impl Uat {
             dev_err!(dev, "Failed to remap {} mem resource\n", name);
         })?;
 
-        Ok(UatRegion { base, map })
+        Ok(UatRegion { map })
     }
 
     /// Returns a reference to the global kernel (upper half) `Vm`
@@ -1361,13 +1359,6 @@ impl Uat {
     pub(crate) fn dump_kernel_pages(&self) -> Result<KVVec<pgtable::DumpedPage>> {
         let mut inner = self.kernel_vm.inner.exec_lock(None, false)?;
         inner.page_table.dump_pages(IOVA_KERN_FULL_RANGE)
-    }
-
-    /// Returns the base physical address of the TTBAT region.
-    pub(crate) fn ttb_base(&self) -> u64 {
-        let inner = self.inner.lock();
-
-        inner.ttbs_rgn.base
     }
 
     /// Binds a `Vm` to a slot, preferring the last used one.

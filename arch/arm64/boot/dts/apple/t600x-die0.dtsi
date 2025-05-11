@@ -532,26 +532,22 @@
 	};
 
 	gpu: gpu@406400000 {
-		compatible = "apple,agx-g13x";
+		compatible = "apple,agx-g13s";
 		reg = <0x4 0x6400000 0 0x40000>,
 			<0x4 0x4000000 0 0x1000000>;
 		reg-names = "asc", "sgx";
-		interrupt-parent = <&aic>;
-		interrupts = <AIC_IRQ 0 1044 IRQ_TYPE_LEVEL_HIGH>,
-			<AIC_IRQ 0 1045 IRQ_TYPE_LEVEL_HIGH>,
-			<AIC_IRQ 0 1046 IRQ_TYPE_LEVEL_HIGH>,
-			<AIC_IRQ 0 1047 IRQ_TYPE_LEVEL_HIGH>,
-			<AIC_IRQ 0 1063 IRQ_TYPE_LEVEL_HIGH>;
 		mboxes = <&agx_mbox>;
 		power-domains = <&ps_gfx>;
-		memory-region = <&uat_ttbs>, <&uat_pagetables>, <&uat_handoff>;
-		memory-region-names = "ttbs", "pagetables", "handoff";
+		memory-region = <&uat_ttbs>, <&uat_pagetables>, <&uat_handoff>, <&gpu_hw_cal_a>, <&gpu_hw_cal_b>, <&gpu_globals>;
+		memory-region-names = "ttbs", "pagetables", "handoff", "hw-cal-a", "hw-cal-b", "globals";
 
 		apple,firmware-version = <12 3 0>;
 		apple,firmware-compat = <12 3 0>;
 
+		apple,firmware-abi = <0 0 0>;
+
 		operating-points-v2 = <&gpu_opp>;
-		apple,perf-base-pstate = <1>;
+/*		apple,perf-base-pstate = <1>;
 		apple,min-sram-microvolt = <790000>;
 		apple,avg-power-filter-tc-ms = <1000>;
 		apple,avg-power-ki-only = <2.4>;
@@ -579,10 +575,10 @@
 		apple,pwr-integral-gain = <0.0202129>;
 		apple,pwr-integral-min-clamp = <0>;
 		apple,pwr-min-duty-cycle = <40>;
-		apple,pwr-proportional-gain = <5.2831855>;
+		apple,pwr-proportional-gain = <5.2831855>;*/
 
-		apple,core-leak-coef = GPU_REPEAT(1200.0);
-		apple,sram-leak-coef = GPU_REPEAT(20.0);
+		apple,core-leak-coef = GPU_REPEAT(1200.0); // will remove, leaving for backcompat
+		apple,sram-leak-coef = GPU_REPEAT(20.0); // ditto
 	};
 
 	agx_mbox: mbox@406408000 {

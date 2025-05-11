@@ -13,11 +13,13 @@
 
 use core::any::Any;
 use core::ops::Range;
+use core::slice;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use kernel::{
     c_str, devcoredump,
     error::code::*,
+    io::mem::{Mem, MemFlags},
     macros::versions,
     new_mutex,
     prelude::*,
@@ -35,7 +37,6 @@ use crate::debug::*;
 use crate::driver::{AsahiDevRef, AsahiDevice};
 use crate::fw::channels::{ChannelErrorType, PipeType};
 use crate::fw::types::{U32, U64};
-use crate::module_parameters;
 use crate::{
     alloc, buffer, channel, event, fw, gem, hw, initdata, mem, mmu, queue, regs, workqueue,
 };
@@ -380,7 +381,7 @@ impl GpuManager::ver {
         cfg: &'static hw::HwConfig,
     ) -> Result<Arc<GpuManager::ver>> {
         let uat = Self::make_uat(dev, cfg)?;
-        let dyncfg = Self::make_dyncfg(dev, res, cfg, &uat)?;
+        let dyncfg = Self::make_dyncfg(dev, res, cfg)?;
 
         let mut alloc = KernelAllocators {
             private: alloc::DefaultAllocator::new(
@@ -733,6 +734,22 @@ impl GpuManager::ver {
         Ok(x)
     }
 
+    fn load_hwdata_blob(dev: &AsahiDevice, name: &CStr) -> Result<KVVec<u8>> {
+        let of_node = dev.as_ref().of_node().ok_or(EINVAL)?;
+        let res = of_node.reserved_mem_region_to_resource_byname(name)?;
+        // SAFETY: No dma here, just loading init data.
+        let mem = unsafe {
+            Mem::try_new(res, MemFlags::WB)?
+        };
+        // SAFETY: trusting the bootloader to fill it out correctly
+        let blob_sl = unsafe {
+            slice::from_raw_parts(mem.ptr(), mem.size())
+        };
+        let mut blob = KVVec::new();
+        blob.extend_from_slice(blob_sl, GFP_KERNEL)?;
+        Ok(blob)
+    }
+
     /// Fetch and validate the GPU dynamic configuration from the device tree and hardware.
     ///
     /// Force disable inlining to avoid blowing up the stack.
@@ -741,7 +758,6 @@ impl GpuManager::ver {
         dev: &AsahiDevice,
         res: &regs::Resources,
         cfg: &'static hw::HwConfig,
-        uat: &mmu::Uat,
     ) -> Result<KBox<hw::DynConfig>> {
         let gpu_id = res.get_gpu_id()?;
 
@@ -777,10 +793,6 @@ impl GpuManager::ver {
             "  Active cores: {}\n",
             gpu_id.total_active_cores
         );
-
-        dev_info!(dev.as_ref(), "Getting configuration from device tree...\n");
-        let pwr_cfg = hw::PwrConfig::load(dev, cfg)?;
-        dev_info!(dev.as_ref(), "Dynamic configuration fetched\n");
 
         if gpu_id.gpu_gen != cfg.gpu_gen || gpu_id.gpu_variant != cfg.gpu_variant {
             dev_err!(
@@ -832,34 +844,14 @@ impl GpuManager::ver {
 
         let node = dev.as_ref().of_node().ok_or(EIO)?;
 
-        let hw_data_a: KVVec<u8>;
-        let hw_data_b: KVVec<u8>;
-        let hw_globals: KVVec<u8>;
-        if *module_parameters::starlight_debug.get() != 0
-            && dev.as_ref().property_present(c_str!("apple,hw-cal-a"))
-            && dev.as_ref().property_present(c_str!("apple,hw-cal-b"))
-            && dev
-                .as_ref()
-                .property_present(c_str!("apple,hw-cal-globals"))
-        {
-            hw_data_a = node.get_property(c_str!("apple,hw-cal-a"))?;
-            hw_data_b = node.get_property(c_str!("apple,hw-cal-b"))?;
-            hw_globals = node.get_property(c_str!("apple,hw-cal-globals"))?;
-        } else {
-            hw_data_a = KVVec::new();
-            hw_data_b = KVVec::new();
-            hw_globals = KVVec::new();
-        }
-
         Ok(KBox::new(
             hw::DynConfig {
-                pwr: pwr_cfg,
-                uat_ttb_base: uat.ttb_base(),
                 id: gpu_id,
-                firmware_version: node.get_property(c_str!("apple,firmware-version"))?,
-                hw_data_a,
-                hw_data_b,
-                hw_globals,
+                firmware_version: node.get_property(c_str!("apple,firmware-abi"))?,
+
+                hw_data_a: Self::load_hwdata_blob(dev, c_str!("hw-cal-a"))?,
+                hw_data_b: Self::load_hwdata_blob(dev, c_str!("hw-cal-b"))?,
+                hw_globals: Self::load_hwdata_blob(dev, c_str!("globals"))?,
             },
             GFP_KERNEL,
         )?)

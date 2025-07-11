@@ -21,9 +21,7 @@ use kernel::{
     c_str, device,
     drm::{self, gem::shmem, gpuvm, mm},
     error::Result,
-    io,
-    io::resource::Resource,
-    new_mutex,
+    io, new_mutex,
     prelude::*,
     static_lock_class,
     sync::{
@@ -1310,25 +1308,6 @@ impl Drop for VmInner {
 }
 
 impl Uat {
-    fn get_region(dev: &device::Device, name: &CStr) -> Result<Resource> {
-        let dev_node = dev.of_node().ok_or(EINVAL)?;
-
-        let node = dev_node.parse_phandle_by_name(
-            c_str!("memory-region"),
-            c_str!("memory-region-names"),
-            name,
-        );
-        let Some(node) = node else {
-            dev_err!(dev, "Missing {} region\n", name);
-            return Err(EINVAL);
-        };
-        let res = node.address_as_resource(0).inspect_err(|_| {
-            dev_err!(dev, "Failed to get {} region\n", name);
-        })?;
-
-        Ok(res)
-    }
-
     /// Map a bootloader-preallocated memory region
     fn map_region(
         dev: &device::Device,
@@ -1336,7 +1315,8 @@ impl Uat {
         size: usize,
         cached: bool,
     ) -> Result<UatRegion> {
-        let res = Self::get_region(dev, name)?;
+        let of_node = dev.of_node().ok_or(EINVAL)?;
+        let res = of_node.reserved_mem_region_to_resource_byname(name)?;
         let base = res.start();
         let res_size = res.size().try_into()?;
 
@@ -1502,7 +1482,8 @@ impl Uat {
 
         let inner = Self::make_inner(dev)?;
 
-        let res = Self::get_region(dev.as_ref(), c_str!("pagetables"))?;
+        let of_node = dev.as_ref().of_node().ok_or(EINVAL)?;
+        let res = of_node.reserved_mem_region_to_resource_byname(c_str!("pagetables"))?;
         let ttb1 = res.start();
         let ttb1size: usize = res.size().try_into()?;
 

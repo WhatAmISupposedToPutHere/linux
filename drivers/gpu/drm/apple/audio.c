@@ -104,8 +104,6 @@ static int dcpaud_interval_bitmask(struct snd_interval *i,
 	return snd_interval_refine(i, &range);
 }
 
-extern const struct snd_pcm_hw_constraint_list snd_pcm_known_rates;
-
 static void dcpaud_fill_fmt_sieve(struct snd_pcm_hw_params *params,
 				  struct dcp_sound_format_mask *sieve)
 {
@@ -115,17 +113,11 @@ static void dcpaud_fill_fmt_sieve(struct snd_pcm_hw_params *params,
 				SNDRV_PCM_HW_PARAM_RATE);
 	struct snd_mask *f = hw_param_mask(params,
 				SNDRV_PCM_HW_PARAM_FORMAT);
-	int i;
 
 	sieve->nchans = GENMASK(c->max, c->min);
 	sieve->formats = f->bits[0] | ((u64) f->bits[1]) << 32; /* TODO: don't open-code */
-
-	for (i = 0; i < snd_pcm_known_rates.count; i++) {
-		unsigned int rate = snd_pcm_known_rates.list[i];
-
-		if (snd_interval_test(r, rate))
-			sieve->rates |= 1u << i;
-	}
+	sieve->rates = snd_pcm_rate_range_to_bits(r->min + !!r->openmin,
+						  r->max - !!r->openmax);
 }
 
 static void dcpaud_consult_elements(struct dcp_audio *dcpaud,

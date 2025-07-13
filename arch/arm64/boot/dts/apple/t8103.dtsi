@@ -1374,12 +1374,18 @@
 			status = "disabled";
 
 			aop_audio: audio {
+				compatible = "apple,t8103-aop-audio", "apple,aop-audio";
 				dmas = <&aop_admac 1>;
 				dma-names = "dma";
 			};
 
 			aop_als: als {
+				compatible = "apple,t8103-aop-als", "apple,aop-als";
 				// intentionally empty
+			};
+
+			las {
+				compatible = "apple,t8103-aop-las", "apple,aop-las";
 			};
 		};
 

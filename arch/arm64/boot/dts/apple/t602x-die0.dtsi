@@ -212,12 +212,18 @@
 		status = "disabled";
 
 		aop_audio: audio {
+			compatible = "apple,t6020-aop-audio", "apple,aop-audio";
 			dmas = <&aop_admac 1>;
 			dma-names = "dma";
 		};
 
 		aop_als: als {
+			compatible = "apple,t6020-aop-als", "apple,aop-als";
 			// intentionally empty
+		};
+
+		las {
+			compatible = "apple,t6020-aop-las", "apple,aop-las";
 		};
 	};
 

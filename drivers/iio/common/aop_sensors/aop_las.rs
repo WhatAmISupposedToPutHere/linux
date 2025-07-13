@@ -26,7 +26,12 @@ impl MessageProcessor for MsgProc {
 #[repr(transparent)]
 struct IIOAopLasDriver(IIORegistration<MsgProc>);
 
-kernel::of_device_table!(OF_TABLE, MODULE_OF_TABLE, (), [] as [(of::DeviceId, ()); 0]);
+kernel::of_device_table!(
+    OF_TABLE,
+    MODULE_OF_TABLE,
+    (),
+    [(of::DeviceId::new(c_str!("apple,aop-las")), ())]
+);
 
 impl platform::Driver for IIOAopLasDriver {
     type IdInfo = ();

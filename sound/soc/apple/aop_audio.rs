@@ -653,7 +653,12 @@ impl Drop for SndSocAopDriver {
 unsafe impl Send for SndSocAopDriver {}
 unsafe impl Sync for SndSocAopDriver {}
 
-kernel::of_device_table!(OF_TABLE, MODULE_OF_TABLE, (), [] as [(of::DeviceId, ()); 0]);
+kernel::of_device_table!(
+    OF_TABLE,
+    MODULE_OF_TABLE,
+    (),
+    [(of::DeviceId::new(c_str!("apple,aop-audio")), ())]
+);
 
 impl platform::Driver for SndSocAopDriver {
     type IdInfo = ();

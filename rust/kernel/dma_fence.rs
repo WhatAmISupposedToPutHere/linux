@@ -11,7 +11,6 @@ use crate::{
     sync::LockClassKey,
     types::Opaque,
 };
-use core::fmt::Write;
 use core::ops::{Deref, DerefMut};
 use core::ptr::addr_of_mut;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -169,14 +168,6 @@ pub trait FenceOps: Sized + Send + Sync {
     fn signaled(self: &FenceObject<Self>) -> bool {
         false
     }
-
-    /// Callback to fill in free-form debug info specific to this fence, like the sequence number.
-    fn fence_value_str(self: &FenceObject<Self>, _output: &mut dyn Write) {}
-
-    /// Fills in the current value of the timeline as a string, like the sequence number. Note that
-    /// the specific fence passed to this function should not matter, drivers should only use it to
-    /// look up the corresponding timeline structures.
-    fn timeline_value_str(self: &FenceObject<Self>, _output: &mut dyn Write) {}
 }
 
 unsafe extern "C" fn get_driver_name_cb<T: FenceOps>(
@@ -228,56 +219,6 @@ unsafe extern "C" fn release_cb<T: FenceOps>(fence: *mut bindings::dma_fence) {
     unsafe { bindings::dma_fence_free(fence) };
 }
 
-unsafe extern "C" fn fence_value_str_cb<T: FenceOps>(
-    fence: *mut bindings::dma_fence,
-    string: *mut crate::ffi::c_char,
-    size: crate::ffi::c_int,
-) {
-    let size: usize = size.try_into().unwrap_or(0);
-
-    if size == 0 {
-        return;
-    }
-
-    // SAFETY: All of our fences are FenceObject<T>.
-    let p = unsafe { crate::container_of!(fence, FenceObject<T>, fence) as *mut FenceObject<T> };
-
-    // SAFETY: The caller is responsible for the validity of string/size
-    let mut f = unsafe { crate::str::Formatter::from_buffer(string as *mut _, size) };
-
-    // SAFETY: The caller is responsible for passing a valid dma_fence subtype
-    T::fence_value_str(unsafe { &mut *p }, &mut f);
-    let _ = f.write_str("\0");
-
-    // SAFETY: `size` is at least 1 per the check above
-    unsafe { *string.add(size - 1) = 0 };
-}
-
-unsafe extern "C" fn timeline_value_str_cb<T: FenceOps>(
-    fence: *mut bindings::dma_fence,
-    string: *mut crate::ffi::c_char,
-    size: crate::ffi::c_int,
-) {
-    let size: usize = size.try_into().unwrap_or(0);
-
-    if size == 0 {
-        return;
-    }
-
-    // SAFETY: All of our fences are FenceObject<T>.
-    let p = unsafe { crate::container_of!(fence, FenceObject<T>, fence) as *mut FenceObject<T> };
-
-    // SAFETY: The caller is responsible for the validity of string/size
-    let mut f = unsafe { crate::str::Formatter::from_buffer(string as *mut _, size) };
-
-    // SAFETY: The caller is responsible for passing a valid dma_fence subtype
-    T::timeline_value_str(unsafe { &mut *p }, &mut f);
-    let _ = f.write_str("\0");
-
-    // SAFETY: `size` is at least 1 per the check above
-    unsafe { *string.add(size - 1) = 0 };
-}
-
 /// A driver-specific DMA Fence Object
 ///
 /// # Invariants
@@ -308,16 +249,6 @@ impl<T: FenceOps> FenceObject<T> {
         },
         wait: None, // Deprecated
         release: Some(release_cb::<T>),
-        fence_value_str: if T::HAS_FENCE_VALUE_STR {
-            Some(fence_value_str_cb::<T>)
-        } else {
-            None
-        },
-        timeline_value_str: if T::HAS_TIMELINE_VALUE_STR {
-            Some(timeline_value_str_cb::<T>)
-        } else {
-            None
-        },
         set_deadline: None,
     };
 }

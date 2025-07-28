@@ -223,7 +223,7 @@ impl<T: BaseDriverObject> Object<T> {
         to_result(unsafe {
             // TODO: see top of file
             bindings::dma_resv_lock(self.raw_dma_resv(), core::ptr::null_mut());
-            let ret = bindings::drm_gem_shmem_vmap(self.as_shmem(), map.as_mut_ptr());
+            let ret = bindings::drm_gem_shmem_vmap_locked(self.as_shmem(), map.as_mut_ptr());
             bindings::dma_resv_unlock(self.raw_dma_resv());
             ret
         })?;
@@ -334,7 +334,7 @@ impl<T: BaseDriverObject> Drop for VMap<T> {
 
             // TODO: see top of file
             bindings::dma_resv_lock(resv, core::ptr::null_mut());
-            bindings::drm_gem_shmem_vunmap(self.owner.as_shmem(), &mut self.map);
+            bindings::drm_gem_shmem_vunmap_locked(self.owner.as_shmem(), &mut self.map);
             bindings::dma_resv_unlock(resv);
         }
     }

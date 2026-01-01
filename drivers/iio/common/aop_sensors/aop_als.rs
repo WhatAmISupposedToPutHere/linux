@@ -7,6 +7,7 @@
 use kernel::{
     bindings, c_str,
     device::Core,
+    firmware::Firmware,
     iio::common::aop_sensors::{AopSensorData, IIORegistration, MessageProcessor},
     module_platform_driver, of, platform,
     prelude::*,
@@ -15,28 +16,47 @@ use kernel::{
     types::ForeignOwnable,
 };
 
+const EPIC_SUBTYPE_GET_AOP_PROPERTY: u16 = 0xa;
 const EPIC_SUBTYPE_SET_ALS_PROPERTY: u16 = 0x4;
+const LUX_OFFSET_CT720: usize = 0x1d;
+const LUX_OFFSET_VD6286: usize = 0x28;
+
+fn get_lux_offset(aop: &dyn AOP, dev: &platform::Device, svc: &EPICService) -> Result<usize> {
+    let name = get_aop_property(aop, svc, 0xf, 16)?.1;
+    match name.as_slice() {
+        b"Redbird\0" => Ok(LUX_OFFSET_VD6286),
+        b"FireFish2\0" => Ok(LUX_OFFSET_CT720),
+        _ => {
+            dev_warn!(
+                dev.as_ref(),
+                "Unknown sensor type {:?}",
+                str::from_utf8(&name)
+            );
+            Err(EIO)
+        }
+    }
+}
 
 fn enable_als(aop: &dyn AOP, dev: &platform::Device, svc: &EPICService) -> Result<()> {
-    let fwnode = dev.as_ref().fwnode().ok_or(ENODEV)?;
-    let prop_name = c_str!("apple,als-calibration");
-    if !fwnode.property_present(prop_name) {
-        dev_warn!(
-            dev.as_ref(),
-            "ALS Calibration not found, will not enable it"
-        );
-        return Ok(());
-    }
-    let calib_len = fwnode.property_count_elem::<u8>(prop_name)?;
-    let prop = fwnode
-        .property_read_array_vec::<u8>(prop_name, calib_len)?
-        .required_by(dev.as_ref())?;
-
-    set_als_property(aop, svc, 0xb, &prop)?;
+    let fw = Firmware::request(c_str!("apple/aop-als-cal.bin"), dev.as_ref())?;
+    set_als_property(aop, svc, 0xb, fw.data())?;
     set_als_property(aop, svc, 0, &200000u32.to_le_bytes())?;
 
     Ok(())
 }
+
+fn get_aop_property(
+    aop: &dyn AOP,
+    svc: &EPICService,
+    tag: u32,
+    data_len: usize,
+) -> Result<(u32, KVec<u8>)> {
+    let mut buf = KVec::new();
+    buf.resize(8, 0, GFP_KERNEL)?;
+    buf[4..8].copy_from_slice(&tag.to_le_bytes());
+    aop.epic_call_ret(svc, EPIC_SUBTYPE_GET_AOP_PROPERTY, &buf, data_len)
+}
+
 fn set_als_property(aop: &dyn AOP, svc: &EPICService, tag: u32, data: &[u8]) -> Result<u32> {
     let mut buf = KVec::new();
     buf.resize(data.len() + 8, 0, GFP_KERNEL)?;
@@ -103,7 +123,8 @@ impl platform::Driver for IIOAopAlsDriver {
         // SAFETY: AOP sets the platform data correctly
         let service = unsafe { *((*dev.as_raw()).platform_data as *const EPICService) };
         let ty = bindings::BINDINGS_IIO_LIGHT;
-        let data = AopSensorData::new(dev.into(), ty, MsgProc(40))?;
+        let offset = get_lux_offset(adata.as_ref(), pdev, &service)?;
+        let data = AopSensorData::new(dev.into(), ty, MsgProc(offset))?;
         adata.add_fakehid_listener(service, data.clone())?;
         enable_als(adata.as_ref(), pdev, &service)?;
         let info_mask = 1 << bindings::BINDINGS_IIO_CHAN_INFO_PROCESSED;
@@ -126,4 +147,5 @@ module_platform_driver! {
     description: "AOP ambient light sensor driver",
     license: "Dual MIT/GPL",
     alias: ["platform:iio_aop_als"],
+    firmware: ["apple/aop-als-cal.bin"],
 }

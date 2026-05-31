@@ -12,9 +12,14 @@ config TYPEC_TPS6598X
 	  module will be called tps6598x.ko.
 
 config TYPEC_TPS6598X_SPMI_APPLE
-	bool "TI TPS6598x Apple SPMI support"
-	depends on TYPEC_TPS6598X
+	tristate "TI TPS6598x Apple SPMI support"
+	select POWER_SUPPLY
+	select REGMAP_I2C
+	select USB_ROLE_SWITCH
 	select REGMAP_SPMI
 	help
 	  Say Y here to enable support for TPS6598x controllers on a SPMI bus
 	  on Apple Silicon.
+
+	  If you choose to build this driver as a dynamically linked module, the
+	  module will be called tps6598x-spmi.ko.

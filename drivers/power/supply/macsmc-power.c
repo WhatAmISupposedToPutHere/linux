@@ -511,7 +511,7 @@ static int macsmc_battery_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGE_NOW:
 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0RM), &vu16);
 		/* B0RM is Big Endian, likely pass through from TI gas gauge */
-		val->intval = (s16)swab16(vu16) * 1000;
+		val->intval = vu16 * 1000;
 		break;
 	case POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN:
 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0DC), &vu16);
@@ -524,7 +524,7 @@ static int macsmc_battery_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_ENERGY_NOW:
 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0RM), &vu16);
 		/* B0RM is Big Endian, likely pass through from TI gas gauge */
-		val->intval = (s16)swab16(vu16) * power->nominal_voltage_mv;
+		val->intval = vu16 * power->nominal_voltage_mv;
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0AT), &vu16);

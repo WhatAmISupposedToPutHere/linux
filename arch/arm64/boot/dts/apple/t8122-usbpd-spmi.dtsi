@@ -1,25 +1,26 @@
 // SPDX-License-Identifier: GPL-2.0+ OR MIT
 /*
- * Apple M3 MacBook Pro and iMac (M3, 2023) I2C based USB PD controller nodes
+ * Apple M3 MacBook Air (M3) SOMI based USB PD controller nodes
  *
- * This file contains nodes for t8122 devices using I2C based cd321x USB Type-C
- * port controllers. The are used in the M3 MacBook Pro and iMacs but not in the
- * M3 Macbook Airs.
+ * This file contains nodes for t8122 devices using SPMI based sn201202x USB Type-C
+ * port controllers. The are used in the M3 MacBook Airs.
  *
- * target-type: J433, J434, J504
+ * target-type: J613, J615
  *
  * Copyright The Asahi Linux Contributors
  */
 
-&i2c0 {
+&nub_spmi_a0 {
 	status = "okay";
 
-	hpm0: usb-pd@38 {
-		compatible = "apple,cd321x";
-		reg = <0x38>;
-		interrupt-parent = <&pinctrl_ap>;
-		interrupts = <11 IRQ_TYPE_LEVEL_LOW>;
-		interrupt-names = "irq";
+	hpm0: usb-pd@c {
+		compatible = "apple,sn201202x";
+		reg = <0xc SPMI_USID>;
+		interrupts = <11 IRQ_TYPE_EDGE_RISING>,
+			<13 IRQ_TYPE_EDGE_RISING>,
+			<17 IRQ_TYPE_EDGE_RISING>,
+			<19 IRQ_TYPE_EDGE_RISING>;
+		interrupt-names = "irq", "select", "sleep", "wake";
 
 		typec0: connector {
 			compatible = "usb-c-connector";
@@ -46,12 +47,14 @@
 		};
 	};
 
-	hpm1: usb-pd@3f {
-		compatible = "apple,cd321x";
-		reg = <0x3f>;
-		interrupt-parent = <&pinctrl_ap>;
-		interrupts = <11 IRQ_TYPE_LEVEL_LOW>;
-		interrupt-names = "irq";
+	hpm1: usb-pd@a {
+		compatible = "apple,sn201202x";
+		reg = <0xa SPMI_USID>;
+		interrupts = <37 IRQ_TYPE_EDGE_RISING>,
+			<39 IRQ_TYPE_EDGE_RISING>,
+			<43 IRQ_TYPE_EDGE_RISING>,
+			<45 IRQ_TYPE_EDGE_RISING>;
+		interrupt-names = "irq", "select", "sleep", "wake";
 
 		typec1: connector {
 			compatible = "usb-c-connector";
@@ -76,5 +79,15 @@
 				};
 			};
 		};
+	};
+
+	hpm5: usb-pd@6 {
+		compatible = "apple,sn201202x";
+		reg = <0x6 SPMI_USID>;
+		interrupts = <89 IRQ_TYPE_EDGE_RISING>,
+			<91 IRQ_TYPE_EDGE_RISING>,
+			<95 IRQ_TYPE_EDGE_RISING>,
+			<97 IRQ_TYPE_EDGE_RISING>;
+		interrupt-names = "irq", "select", "sleep", "wake";
 	};
 };
